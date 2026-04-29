@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Console appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- app.log — all application logs (equivalent of Spring Boot default) -->
+    <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/app.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- catalina.out — Tomcat internals only, mirrors standalone Tomcat behaviour -->
+    <appender name="CATALINA_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/catalina.out</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/catalina.%d{yyyy-MM-dd}.out</fileNamePattern>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Tomcat / Catalina loggers → catalina.out -->
+    <logger name="org.apache.catalina" level="INFO" additivity="false">
+        <appender-ref ref="CATALINA_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="org.apache.tomcat" level="INFO" additivity="false">
+        <appender-ref ref="CATALINA_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="org.apache.coyote" level="INFO" additivity="false">
+        <appender-ref ref="CATALINA_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- Your app logs → app.log -->
+    <logger name="com.authapp" level="DEBUG" additivity="false">
+        <appender-ref ref="APP_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- Everything else → app.log -->
+    <root level="INFO">
+        <appender-ref ref="APP_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>
