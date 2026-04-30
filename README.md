@@ -19,7 +19,8 @@ A full-stack User Authentication System built with **Spring Boot 3** (backend) a
 11. [Deploy on Standalone Tomcat (.tar.gz)](#11-deploy-on-standalone-tomcat-targz)
 12. [Environment Variables](#12-environment-variables)
 13. [H2 Database Console](#13-h2-database-console)
-14. [Troubleshooting](#14-troubleshooting)
+14. [Deployment Issues & Fixes (Real-World)](#14-deployment-issues--fixes-real-world)
+15. [Troubleshooting](#15-troubleshooting)
 
 ---
 
@@ -938,7 +939,117 @@ Available only in development (not recommended in production).
 
 ---
 
-## 14. Troubleshooting
+## 14. Deployment Issues & Fixes (Real-World)
+
+This section documents actual issues encountered during Docker deployment and how each was resolved.
+
+---
+
+### Issue 1 — `docker compose up` picking up wrong compose file
+
+**What happened:**
+Running `docker compose up` from inside the project folder was still reading a `docker-compose.yml` from a parent directory. The error pointed to paths that didn't exist relative to the wrong file location.
+
+**Why:**
+Docker Compose searches the current directory and parent directories for a `docker-compose.yml`. A stale leftover file in a parent directory was being picked up instead of the correct one.
+
+**Fix:**
+Delete the stale file from the parent directory, then always run `docker compose` from the directory that contains the intended `docker-compose.yml`.
+
+```bash
+rm /path/to/wrong/docker-compose.yml
+cd /correct/project/directory
+docker compose up --build -d
+```
+
+---
+
+### Issue 2 — Angular build fails: `Configuration 'production' is not set`
+
+**What happened:**
+The frontend Docker build failed with:
+```
+An unhandled exception occurred: Configuration 'production' is not set in the workspace.
+```
+
+**Why:**
+`angular.json` was missing the `configurations` block entirely. The Angular CLI's `ng build --configuration production` command requires a `production` entry under `architect.build.configurations`. Without it, the CLI has no idea what "production" means.
+
+**Fix:**
+Added the full `configurations.production` and `configurations.development` blocks to `angular.json`, and switched the builder from the legacy `browser` to the correct `application` builder required by Angular 17+.
+
+---
+
+### Issue 3 — Frontend container serves default Nginx page instead of Angular app
+
+**What happened:**
+After a successful Docker build, hitting the server on port 80 showed the default "Welcome to nginx!" page instead of the Angular login page.
+
+**Why:**
+Angular 17+ changed the output directory structure. The old `@angular-devkit/build-angular:browser` builder output files directly to `dist/auth-frontend/`. The new `application` builder outputs to `dist/auth-frontend/browser/`. The Dockerfile was copying from the old path, so the Nginx container had no Angular files — only its own default page.
+
+**Fix:**
+Updated the `COPY` line in `auth-frontend/Dockerfile`:
+```dockerfile
+# Before (wrong)
+COPY --from=builder /app/dist/auth-frontend /usr/share/nginx/html
+
+# After (correct)
+COPY --from=builder /app/dist/auth-frontend/browser /usr/share/nginx/html
+```
+
+---
+
+### Issue 4 — Registration/Login fails: API calls going to wrong host
+
+**What happened:**
+The Angular app loaded correctly but all API calls (register, login) failed with network errors when accessed from a remote machine.
+
+**Why:**
+The Angular service had the backend URL hardcoded as `http://localhost:8080`. When a user opens the app from their browser on a different machine, `localhost` resolves to *their own machine*, not the server. So every API call was going nowhere.
+
+**Fix:**
+Changed all API URLs in the Angular service from absolute `http://localhost:8080/api/...` to relative `/api/...`. Nginx already has a `proxy_pass` rule that forwards `/api/` to the backend container, so relative URLs work correctly in Docker. For local development, a `proxy.conf.json` was added so `ng serve` also proxies `/api/` to `localhost:8080`.
+
+```json
+// proxy.conf.json — used by ng serve locally
+{
+  "/api": {
+    "target": "http://localhost:8080",
+    "secure": false,
+    "changeOrigin": true
+  }
+}
+```
+
+This makes the app work in both environments without any code changes between local and production.
+
+---
+
+### Issue 5 — JWT error: key is 0 bits, not secure enough
+
+**What happened:**
+After the Angular fix, registration still failed. Backend logs showed:
+```
+The specified key byte array is 0 bits which is not secure enough for any JWT HMAC-SHA algorithm.
+```
+
+**Why:**
+The `APP_JWT_SECRET` environment variable was not set on the server. The `docker-compose.yml` references `${APP_JWT_SECRET}` which defaulted to a blank string. JJWT enforces a minimum key size of 256 bits (32 bytes) for HMAC-SHA — a blank string is 0 bits and is rejected outright, causing every register and login attempt to crash.
+
+**Fix:**
+Created a `.env` file in the project root on the server with a valid 64-character hex secret:
+```bash
+echo "APP_JWT_SECRET=<your-64-char-secret>" > .env
+docker compose down && docker compose up -d
+```
+No rebuild is needed — just a restart so the container picks up the new environment variable.
+
+> The `.env` file must never be committed to version control. Add it to `.gitignore`.
+
+---
+
+## 15. Troubleshooting
 
 ### Backend won't start — port 8080 in use
 ```cmd
