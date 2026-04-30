@@ -8,6 +8,6 @@ RUN node node_modules/@angular/cli/bin/ng.js build --configuration production
 
 # ── Stage 2: Serve with Nginx ───────────────────────────────────────────────
 FROM nginx:alpine
-COPY --from=builder /app/dist/auth-frontend /usr/share/nginx/html
+COPY --from=builder /app/dist/auth-frontend/browser /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
