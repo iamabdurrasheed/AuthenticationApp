@@ -36,7 +36,7 @@ export class DashboardComponent implements OnInit {
   constructor(private http: HttpClient, private auth: AuthService) {}
 
   ngOnInit(): void {
-    this.http.get<{ message: string; username: string }>('http://localhost:8080/api/dashboard').subscribe({
+    this.http.get<{ message: string; username: string }>('/api/dashboard').subscribe({
       next: data => { this.dashboardData = data; this.loading = false; },
       error: () => { this.error = 'Failed to load dashboard data.'; this.loading = false; }
     });

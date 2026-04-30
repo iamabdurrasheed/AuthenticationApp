@@ -11,7 +11,7 @@ export interface AuthResponse {
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly API = 'http://localhost:8080/api/auth';
+  private readonly API = '/api/auth';
 
   // In-memory storage — not accessible to injected scripts (safer than localStorage)
   private session: AuthResponse | null = null;
