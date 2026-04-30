@@ -15,10 +15,11 @@ A full-stack User Authentication System built with **Spring Boot 3** (backend) a
 7. [Run Locally — IntelliJ IDEA](#7-run-locally--intellij-idea)
 8. [Run Locally — Terminal](#8-run-locally--terminal)
 9. [Deploy with Docker (Full Guide)](#9-deploy-with-docker-full-guide)
-10. [Deploy on Standalone Tomcat (.tar.gz)](#10-deploy-on-standalone-tomcat-targz)
-11. [Environment Variables](#11-environment-variables)
-12. [H2 Database Console](#12-h2-database-console)
-13. [Troubleshooting](#13-troubleshooting)
+10. [Deploy with Docker — No Compose (Dockerfiles Only)](#10-deploy-with-docker--no-compose-dockerfiles-only)
+11. [Deploy on Standalone Tomcat (.tar.gz)](#11-deploy-on-standalone-tomcat-targz)
+12. [Environment Variables](#12-environment-variables)
+13. [H2 Database Console](#13-h2-database-console)
+14. [Troubleshooting](#14-troubleshooting)
 
 ---
 
@@ -462,7 +463,235 @@ docker compose up --build -d
 
 ---
 
-## 10. Deploy on Standalone Tomcat (.tar.gz)
+## 10. Deploy with Docker — No Compose (Dockerfiles Only)
+
+This section shows how to build and run both containers **manually using only `docker` commands** — no `docker-compose.yml` needed. This is useful when Docker Compose is not available or you want full manual control.
+
+### How it works without Compose
+
+Docker Compose is just a convenience wrapper. Everything it does can be done manually:
+
+| docker-compose does | Raw docker equivalent |
+|---|---|
+| Creates a network | `docker network create` |
+| Builds images | `docker build` |
+| Runs containers | `docker run` |
+| Passes env vars | `docker run -e` |
+| Mounts volumes | `docker run -v` |
+| Links containers | `--network` + container name as hostname |
+
+---
+
+### Step 1 — Install Docker (no Compose needed)
+
+```bash
+sudo apt update && sudo apt upgrade -y
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+newgrp docker
+docker --version
+```
+
+---
+
+### Step 2 — Copy project to server
+
+```bash
+git clone https://github.com/<your-username>/AuthenticationApp.git
+cd AuthenticationApp
+```
+
+---
+
+### Step 3 — Create a shared Docker network
+
+Both containers must be on the same network so the frontend (Nginx) can reach the backend by container name.
+
+```bash
+docker network create authapp-network
+```
+
+---
+
+### Step 4 — Build the backend image
+
+```bash
+# Run from the AuthenticationApp root directory
+docker build -t authapp-backend:1.0 .
+```
+
+This uses `Dockerfile` in the root. Maven downloads dependencies, compiles the JAR, and packages it into a JRE 17 Alpine image.
+
+---
+
+### Step 5 — Run the backend container
+
+```bash
+docker run -d \
+  --name authapp-backend \
+  --network authapp-network \
+  -p 8080:8080 \
+  -e APP_JWT_SECRET=3f8a2b1c9d4e7f0a6b5c2d8e1f4a7b0c3d6e9f2a5b8c1d4e7f0a3b6c9d2e5f8a \
+  -e SPRING_PROFILES_ACTIVE=prod \
+  -v $(pwd)/logs:/app/logs \
+  authapp-backend:1.0
+```
+
+> On Windows CMD replace `$(pwd)` with the full path:
+> ```cmd
+> -v C:\Users\mrasheed\Desktop\AuthenticationApp\logs:/app/logs
+> ```
+
+Verify it started:
+```bash
+docker logs -f authapp-backend
+```
+
+You should see `Started AuthApplication in X seconds`.
+
+---
+
+### Step 6 — Build the frontend image
+
+```bash
+# Run from the AuthenticationApp root directory
+docker build -t authapp-frontend:1.0 ./auth-frontend
+```
+
+This uses `auth-frontend/Dockerfile`. Node 20 builds the Angular app, then Nginx Alpine serves the static files.
+
+---
+
+### Step 7 — Run the frontend container
+
+```bash
+docker run -d \
+  --name authapp-frontend \
+  --network authapp-network \
+  -p 80:80 \
+  authapp-frontend:1.0
+```
+
+Nginx inside the container proxies `/api/*` to `http://authapp-backend:8080` — this works because both containers are on `authapp-network` and Docker resolves container names as hostnames automatically.
+
+---
+
+### Step 8 — Verify both containers are running
+
+```bash
+docker ps
+```
+
+Expected output:
+```
+CONTAINER ID   IMAGE                    STATUS         PORTS
+xxxxxxxxxxxx   authapp-frontend:1.0     Up             0.0.0.0:80->80/tcp
+xxxxxxxxxxxx   authapp-backend:1.0      Up             0.0.0.0:8080->8080/tcp
+```
+
+---
+
+### Step 9 — Access the application
+
+| URL | What |
+|-----|------|
+| `http://<server-ip>` | Angular frontend |
+| `http://<server-ip>/login` | Login page |
+| `http://<server-ip>/register` | Register page |
+| `http://<server-ip>/dashboard` | Dashboard (JWT protected) |
+| `http://<server-ip>:8080/api/auth/register` | Backend API direct |
+
+---
+
+### Step 10 — View logs
+
+```bash
+# Live backend logs
+docker logs -f authapp-backend
+
+# Live frontend logs
+docker logs -f authapp-frontend
+
+# app.log on host (volume mounted)
+cat logs/app.log
+
+# catalina.out on host
+cat logs/catalina.out
+```
+
+---
+
+### Step 11 — Stop and remove containers
+
+```bash
+# Stop
+docker stop authapp-frontend authapp-backend
+
+# Remove containers
+docker rm authapp-frontend authapp-backend
+
+# Remove network (only when fully done)
+docker network rm authapp-network
+```
+
+---
+
+### Step 12 — Redeploy after code changes
+
+```bash
+# Stop and remove old containers
+docker stop authapp-frontend authapp-backend
+docker rm authapp-frontend authapp-backend
+
+# Rebuild both images
+docker build -t authapp-backend:1.0 .
+docker build -t authapp-frontend:1.0 ./auth-frontend
+
+# Start fresh containers (network already exists)
+docker run -d --name authapp-backend --network authapp-network \
+  -p 8080:8080 \
+  -e APP_JWT_SECRET=3f8a2b1c9d4e7f0a6b5c2d8e1f4a7b0c3d6e9f2a5b8c1d4e7f0a3b6c9d2e5f8a \
+  -e SPRING_PROFILES_ACTIVE=prod \
+  -v $(pwd)/logs:/app/logs \
+  authapp-backend:1.0
+
+docker run -d --name authapp-frontend --network authapp-network \
+  -p 80:80 \
+  authapp-frontend:1.0
+```
+
+---
+
+### Docker-only Architecture Diagram
+
+```
+┌──────────────────────────────────────────────────────┐
+│                    Docker Host                       │
+│                                                      │
+│  docker network create authapp-network               │
+│                                                      │
+│  ┌───────────────────┐    ┌────────────────────────┐ │
+│  │  authapp-frontend │    │   authapp-backend      │ │
+│  │  authapp-frontend │    │   authapp-backend      │ │
+│  │  :1.0 (Nginx)     │    │   :1.0 (JRE 17)        │ │
+│  │                   │    │                        │ │
+│  │  port 80:80       │───▶│   port 8080:8080       │ │
+│  │                   │    │                        │ │
+│  │  proxies /api/* ──┼───▶│   Spring Boot 3        │ │
+│  │  via container    │    │   H2 In-Memory DB      │ │
+│  │  name resolution  │    │                        │ │
+│  └───────────────────┘    └────────────────────────┘ │
+│            │                          │              │
+│            └────── authapp-network ───┘              │
+│                    (bridge)                          │
+│                                                      │
+│  ./logs/ ◀──────────────── -v volume mount          │
+└──────────────────────────────────────────────────────┘
+```
+
+---
+
+## 11. Deploy on Standalone Tomcat (.tar.gz)
 
 This section covers deploying the Spring Boot backend on a **standalone Apache Tomcat** server (the traditional `.tar.gz` installation), not Docker.
 
@@ -686,17 +915,17 @@ sudo /opt/tomcat/bin/startup.sh
 
 ---
 
-## 11. Environment Variables
+## 12. Environment Variables
 
 | Variable | Default (dev) | Required in prod |
 |---|---|---|
-| `APP_JWT_SECRET` | 64-char fallback in `application.properties` | YES — override with strong secret |
+| `APP_JWT_SECRET` | Defined in `.env` file | YES — always required, set in `.env` |
 | `SPRING_PROFILES_ACTIVE` | (none) | Optional — set to `prod` |
 | `SERVER_PORT` | `8080` | Optional |
 
 ---
 
-## 12. H2 Database Console
+## 13. H2 Database Console
 
 Available only in development (not recommended in production).
 
@@ -709,7 +938,7 @@ Available only in development (not recommended in production).
 
 ---
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 ### Backend won't start — port 8080 in use
 ```cmd
